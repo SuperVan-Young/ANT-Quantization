@@ -7,6 +7,7 @@ import numpy as np
 import quant_cuda
 import torch.distributed as dist
 from quant_affine import *
+from typing import Callable
 
 class QuantBase():
     def _quantization(x, quant_grid):
@@ -312,8 +313,17 @@ class Quantizer(nn.Module):
         else:
             return sim_tensor.mean() * -1.0
 
+    def fisher_diag_loss(self, quant_output, source_output, grad, is_perchannel = True):
+        if is_perchannel:
+            mean_tensor = ((quant_output - source_output) * grad).pow(2).view(quant_output.shape[0], -1).mean(-1).unsqueeze(1)
+            return mean_tensor
+        else:
+            return ((quant_output - source_output) * grad).pow(2).mean()
 
-    def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
+
+    def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None, 
+                          grad_data: torch.Tensor = None, grad_out: torch.Tensor = None,
+                          act_func: Callable = None, use_act_func: bool = False,
                           opt_target: str = 'tensor', opt_metric: str = 'mse'):
         tensor = data
 
@@ -358,12 +368,20 @@ class Quantizer(nn.Module):
                     weight, inps = tensor, data_b
                 quant_outs = self.operator(weight, inps)
 
+                if use_act_func:
+                    assert opt_metric != 'fisher_diag'
+                    assert act_func is not None
+                    quant_outs = act_func(quant_outs)
+                    org_outs = act_func(org_outs)
+
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel)
                 elif opt_metric == 'cosine':
                     score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
                 elif opt_metric == 'pearson':
                     score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'fisher_diag':
+                    score = self.fisher_diag_loss(quant_outs, org_outs, grad_out, is_perchannel=self.is_perchannel)
                 else:
                     raise NotImplementedError
             else:
