@@ -288,5 +288,9 @@ if args.train:
         logger.info(scheduler.state_dict())
         train(epoch)
         test()
+elif args.ptq:
+    ptq_init()
+    test()
 else:
+    logger.warn("Neither QAT nor PTQ is run!")
     test()
