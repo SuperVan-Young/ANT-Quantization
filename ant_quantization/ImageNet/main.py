@@ -25,7 +25,7 @@ parser.add_argument('--ckpt_path', default=None, type=str,
                     help='checkpoint path')
 parser.add_argument('--dataset', default='cifar10', type=str, 
                     help='dataset name')
-parser.add_argument('--dataset_path', default='/nvme/imagenet', type=str, 
+parser.add_argument('--dataset_path', default='/datasets/imagenet', type=str, 
                     help='dataset path')
 parser.add_argument('--model', default='resnet18', type=str, 
                     help='model name')

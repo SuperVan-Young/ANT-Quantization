@@ -137,7 +137,7 @@ def create_dali_pipeline(data_dir, crop, size, shard_id, num_shards, dali_cpu=Fa
 def dali_get_imagenet_dataloader(batch_size=256, dataset_path=None, model_arch=None):
     img_dir = dataset_path
     traindir = os.path.join(img_dir, 'train')
-    valdir = os.path.join(img_dir, 'validation')
+    valdir = os.path.join(img_dir, 'val')
 
 
     crop_size = 224
