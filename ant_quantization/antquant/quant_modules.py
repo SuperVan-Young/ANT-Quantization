@@ -63,10 +63,14 @@ class Quantizer(nn.Module):
     def enable_quantization(self, name):
         self.name = name
         self.is_enable = True
+        self.is_enable_activation = self.is_enable
+        self.is_enable_weight = self.is_enable
 
     def disable_quantization(self, name):
         self.name = name
         self.is_enable = False
+        self.is_enable_activation = self.is_enable
+        self.is_enable_weight = self.is_enable
 
     def update_signed(self, tensor):
         if tensor.min() < 0:
@@ -284,41 +288,59 @@ class Quantizer(nn.Module):
         else:
             return (quant_tensor-source_tensor).abs().pow(p).mean()
 
-    def search_mse(self, tensor):
-        if self.is_perchannel and (not self.is_input):
+    def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
+                          opt_target: str = 'tensor', opt_metric: str = 'mse'):
+        tensor = data
+
+        if self.is_perchannel:
             x_max, _ = tensor.view(tensor.shape[0], -1).abs().max(1)
             x_max = x_max.unsqueeze(1)            
             best_score = torch.ones_like(x_max) * 1e10
-            
             alpha = x_max.clone()
             base_alpha = x_max.clone()
-            lb = int(self.w_low)
-            if self.bit > 6:
-                lb = int(95)
-            ub = int(self.w_up)
-            for i in range(lb, ub):
-                new_alpha = base_alpha * (i * 0.01)
-                self.alpha.data = new_alpha
-                quant_tensor = self._forward(tensor)
-
-                score = self.mse_loss(quant_tensor, tensor)
-                alpha[score < best_score] = new_alpha[score < best_score]
-                best_score[score < best_score] = score[score < best_score]
-        else:        
+        else:
             x_max = tensor.abs().max()
             best_score = 1e10
             alpha = x_max.clone()
             base_alpha = alpha.clone()
-            
-            lb = int(self.a_low)
-            if self.bit > 6:
-                lb = int(95)
-            ub = int(self.a_up)
-            for i in range(lb, ub):
-                new_alpha = base_alpha * (i * 0.01)
-                self.alpha.data = new_alpha
-                quant_tensor = self._forward(tensor)
-                score = self.mse_loss(quant_tensor, tensor, p = 2, is_perchannel=False)
+
+        if opt_metric == 'max':
+            assert opt_target != 'output', "Min-Max metric can only target tensor reconstruction."
+            return best_score.sum(), alpha, 1.0
+        
+        lb = int(self.a_low if self.is_input else self.w_low)
+        if self.bit > 6:
+            lb = int(95)
+        ub = int(self.a_up if self.is_input else self.w_up)
+        for i in range(lb, ub):
+            new_alpha = base_alpha * (i * 0.01)
+            self.alpha.data = new_alpha
+            quant_tensor = self._forward(tensor)
+
+            if opt_target == 'tensor':
+                if opt_metric == 'mse':
+                    score = self.mse_loss(quant_tensor, tensor, p=2.0, is_perchannel=self.is_perchannel)
+                else:
+                    raise NotImplementedError
+            elif opt_target == 'output':
+                if self.is_input:
+                    weight, inps = data_b, tensor
+                else:
+                    weight, inps = tensor, data_b
+                quant_outs = self.operator(weight, inps)
+
+                if opt_metric == 'mse':
+                    score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel)
+                else:
+                    raise NotImplementedError
+            else:
+                raise NotImplementedError
+
+            if self.is_perchannel:
+                update_indices = score < best_score
+                alpha[update_indices] = new_alpha[update_indices]
+                best_score[update_indices] = score[update_indices]
+            else:
                 if score < best_score:
                     best_score = score
                     alpha = new_alpha
@@ -332,7 +354,7 @@ class Quantizer(nn.Module):
         if "-int" in mode:
             self.mode = 'int'
             self.quant_grid.data = self.int_value()
-            best_score_int, _, _ = self.search_mse(data)
+            best_score_int, _, _ = self.search_best_alpha(data)
             modes.append('int')
             mse_list.append(best_score_int.item())
             # if dist.get_rank() == 0:
@@ -341,7 +363,7 @@ class Quantizer(nn.Module):
         if "-flint" in mode:
             self.mode = 'flint'
             self.quant_grid.data = self.flint_value()
-            best_score_flint, _, _ = self.search_mse(data)
+            best_score_flint, _, _ = self.search_best_alpha(data)
             modes.append('flint')
             mse_list.append(best_score_flint.item())
             # if dist.get_rank() == 0:
@@ -350,7 +372,7 @@ class Quantizer(nn.Module):
         if "-pot" in mode:
             self.mode = 'pot'
             self.quant_grid.data = self.pot_value()
-            best_score_pot, _, _ = self.search_mse(data)
+            best_score_pot, _, _ = self.search_best_alpha(data)
             modes.append('pot')
             mse_list.append(best_score_pot.item())
             # if dist.get_rank() == 0:
@@ -359,7 +381,7 @@ class Quantizer(nn.Module):
         if "-float" in mode:
             self.mode = 'float'
             self.quant_grid.data = self.float_value()
-            best_score_float, _, _ = self.search_mse(data)
+            best_score_float, _, _ = self.search_best_alpha(data)
             modes.append('float')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -368,7 +390,7 @@ class Quantizer(nn.Module):
         if "-float1" in mode:
             self.mode = 'float1'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_mse(data)
+            best_score_float, _, _ = self.search_best_alpha(data)
             modes.append('float1')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -377,7 +399,7 @@ class Quantizer(nn.Module):
         if "-float2" in mode:
             self.mode = 'float2'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_mse(data)
+            best_score_float, _, _ = self.search_best_alpha(data)
             modes.append('float2')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -386,7 +408,7 @@ class Quantizer(nn.Module):
         if "-float3" in mode:
             self.mode = 'float3'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_mse(data)
+            best_score_float, _, _ = self.search_best_alpha(data)
             modes.append('float3')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -395,7 +417,7 @@ class Quantizer(nn.Module):
         if "-float4" in mode:
             self.mode = 'float4'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_mse(data)
+            best_score_float, _, _ = self.search_best_alpha(data)
             modes.append('float4')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -404,7 +426,7 @@ class Quantizer(nn.Module):
         if "-apot" in mode:
             self.mode = 'apot'
             self.quant_grid.data = self.apot_value()
-            best_score_apot, _, _ = self.search_mse(data)
+            best_score_apot, _, _ = self.search_best_alpha(data)
             modes.append('apot')
             mse_list.append(best_score_apot.item())
             # if dist.get_rank() == 0:
@@ -465,7 +487,8 @@ class Quantizer(nn.Module):
         return tensor
 
 
-    def _init_quant_para(self, data, data_b):
+    def init_quant_para(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
+                        opt_target: str = 'tensor', opt_metric: str = 'mse'):
         with torch.no_grad():                    
             if self.has_inited_quant_para == 0:
                 self.update_signed(data)                
@@ -488,13 +511,13 @@ class Quantizer(nn.Module):
                 alpha_ratio = 1.0
                 if self.mode == "flint":
                     self.quant_grid.data = self.flint_value()
-                    # _, self.alpha.data, alpha_ratio = self.search_mse(data)
+                    # _, self.alpha.data, alpha_ratio = self.search_best_alpha(data)
                 elif self.mode == "int":
                     self.quant_grid.data = self.int_value()
-                    # _, self.alpha.data, alpha_ratio = self.search_mse(data)
+                    # _, self.alpha.data, alpha_ratio = self.search_best_alpha(data)
                 elif self.mode == "pot":
                     self.quant_grid.data = self.pot_value()   
-                    # _, self.alpha.data, alpha_ratio = self.search_mse(data)
+                    # _, self.alpha.data, alpha_ratio = self.search_best_alpha(data)
                 elif self.mode == "apot":
                     self.quant_grid.data = self.apot_value()
                 elif self.mode == "float":
@@ -510,7 +533,7 @@ class Quantizer(nn.Module):
                 else:
                     raise RuntimeError("Unsupported mode: " + self.mode)
                 
-                _, self.alpha.data, alpha_ratio = self.search_mse(data)
+                _, self.alpha.data, alpha_ratio = self.search_best_alpha(data, data_b, org_outs, opt_target, opt_metric)
 
 
 
@@ -562,8 +585,10 @@ class Quantizer(nn.Module):
             if not self.is_enable_weight:
                 return tensor
 
-        with torch.no_grad():
-            self._init_quant_para(tensor, input_tensor)
+        # Move initialization out of the loop
+        # with torch.no_grad():
+            # self._init_quant_para(tensor, input_tensor)
+        assert self.has_inited_quant_para != 0, f"{self._get_name()} hasn't inited quant params!"
 
         if self.mode == 'outlier':
             q_tensor = self.outlier_quant(tensor)

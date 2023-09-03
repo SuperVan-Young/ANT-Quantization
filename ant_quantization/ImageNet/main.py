@@ -15,6 +15,7 @@ sys.path.append("../antquant")
 from quant_model import *
 from quant_utils import *
 from dataloader import get_dataloader, get_imagenet_dataloader
+from ptq_init import ptq_init_model
 
 
 parser = argparse.ArgumentParser(description='PyTorch Adaptive Numeric DataType Training')
@@ -235,11 +236,12 @@ def train(epoch):
     trainloader.reset()
 
 # Post-Training Quantization
+# Deprecated
 def ptq_init():
     model.eval()
     data = trainloader.next()
     inputs = data[0]["data"]
-    model(inputs)
+    ptq_init_model(model, model, inputs)
     del(inputs)
 
 def test():
