@@ -398,14 +398,14 @@ class Quantizer(nn.Module):
 
         return best_score.sum(), alpha, (alpha / x_max).mean().item()
 
-    def search_adaptive_numeric_type(self, data):
+    def search_adaptive_numeric_type(self, *args, **kwargs):
         modes = []
         mse_list = []
         mode = self.mode
         if "-int" in mode:
             self.mode = 'int'
             self.quant_grid.data = self.int_value()
-            best_score_int, _, _ = self.search_best_alpha(data)
+            best_score_int, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('int')
             mse_list.append(best_score_int.item())
             # if dist.get_rank() == 0:
@@ -414,7 +414,7 @@ class Quantizer(nn.Module):
         if "-flint" in mode:
             self.mode = 'flint'
             self.quant_grid.data = self.flint_value()
-            best_score_flint, _, _ = self.search_best_alpha(data)
+            best_score_flint, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('flint')
             mse_list.append(best_score_flint.item())
             # if dist.get_rank() == 0:
@@ -423,7 +423,7 @@ class Quantizer(nn.Module):
         if "-pot" in mode:
             self.mode = 'pot'
             self.quant_grid.data = self.pot_value()
-            best_score_pot, _, _ = self.search_best_alpha(data)
+            best_score_pot, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('pot')
             mse_list.append(best_score_pot.item())
             # if dist.get_rank() == 0:
@@ -432,7 +432,7 @@ class Quantizer(nn.Module):
         if "-float" in mode:
             self.mode = 'float'
             self.quant_grid.data = self.float_value()
-            best_score_float, _, _ = self.search_best_alpha(data)
+            best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -441,7 +441,7 @@ class Quantizer(nn.Module):
         if "-float1" in mode:
             self.mode = 'float1'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_best_alpha(data)
+            best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float1')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -450,7 +450,7 @@ class Quantizer(nn.Module):
         if "-float2" in mode:
             self.mode = 'float2'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_best_alpha(data)
+            best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float2')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -459,7 +459,7 @@ class Quantizer(nn.Module):
         if "-float3" in mode:
             self.mode = 'float3'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_best_alpha(data)
+            best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float3')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -468,7 +468,7 @@ class Quantizer(nn.Module):
         if "-float4" in mode:
             self.mode = 'float4'
             self.quant_grid.data = self.float_value(1)
-            best_score_float, _, _ = self.search_best_alpha(data)
+            best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float4')
             mse_list.append(best_score_float.item())
             # if dist.get_rank() == 0:
@@ -477,7 +477,7 @@ class Quantizer(nn.Module):
         if "-apot" in mode:
             self.mode = 'apot'
             self.quant_grid.data = self.apot_value()
-            best_score_apot, _, _ = self.search_best_alpha(data)
+            best_score_apot, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('apot')
             mse_list.append(best_score_apot.item())
             # if dist.get_rank() == 0:
@@ -539,6 +539,8 @@ class Quantizer(nn.Module):
 
 
     def init_quant_para(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
+                        grad_data: torch.Tensor = None, grad_out: torch.Tensor = None,
+                        act_func: Callable = None, use_act_func: bool = False,
                         opt_target: str = 'tensor', opt_metric: str = 'mse'):
         with torch.no_grad():                    
             if self.has_inited_quant_para == 0:
@@ -557,7 +559,10 @@ class Quantizer(nn.Module):
                     self.mode = 'int'
                 else:
                     if "ant-" in self.mode:
-                        self.search_adaptive_numeric_type(data)
+                        self.search_adaptive_numeric_type(data=data, data_b=data_b, org_outs=org_outs,
+                                                          grad_data=grad_data, grad_out=grad_out,
+                                                          act_func=act_func, use_act_func=use_act_func,
+                                                          opt_target=opt_target, opt_metric=opt_metric)
 
                 alpha_ratio = 1.0
                 if self.mode == "flint":
@@ -584,8 +589,10 @@ class Quantizer(nn.Module):
                 else:
                     raise RuntimeError("Unsupported mode: " + self.mode)
                 
-                _, self.alpha.data, alpha_ratio = self.search_best_alpha(data, data_b, org_outs, opt_target, opt_metric)
-
+                _, self.alpha.data, alpha_ratio = self.search_best_alpha(data=data, data_b=data_b, org_outs=org_outs,
+                                                          grad_data=grad_data, grad_out=grad_out,
+                                                          act_func=act_func, use_act_func=use_act_func,
+                                                          opt_target=opt_target, opt_metric=opt_metric)
 
 
                 def reduce_ave_tensor(tensor):
