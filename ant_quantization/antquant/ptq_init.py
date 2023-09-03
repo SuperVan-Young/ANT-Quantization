@@ -32,7 +32,6 @@ def register_act_func(module):
     prev_quantmodule = None
     def identity(x):
         return x
-    #FIXME: use act function later
 
     for name, child_module in module.named_children():
         if isinstance(child_module, (
@@ -62,8 +61,9 @@ def register_act_func(module):
             
 
 def ptq_init_model(model: nn.Module, module: nn.Module, cali_data: torch.Tensor,
-                   opt_target: str = 'tensor', opt_metric: str = 'mse', batch_size: int = 32,
-                   asym: bool = False, act_quant: bool = False, include_act_func: bool = False):
+                   batch_size: int = 32, asym: bool = False, act_quant: bool = False,
+                   weight_opt_target: str = 'tensor', weight_opt_metric: str = 'mse',
+                   inp_opt_target: str = 'tensor', inp_opt_metric: str = 'mse'):
     """
     Initialize quantization parameters of the model.
 
@@ -79,13 +79,15 @@ def ptq_init_model(model: nn.Module, module: nn.Module, cali_data: torch.Tensor,
             LinearQuantizer,
             # MultiheadAttentionQuantizer,
         )):
-            ptq_init_layer(model, child_module, cali_data, opt_target=opt_target, opt_metric=opt_metric,
-                           batch_size=batch_size, asym=asym, act_quant=act_quant, 
-                           include_act_func=include_act_func)
+            ptq_init_layer(model, child_module, cali_data,
+                           batch_size=batch_size, asym=asym, act_quant=act_quant,
+                           weight_opt_target=weight_opt_target, weight_opt_metric=weight_opt_metric,
+                           inp_opt_target=inp_opt_target, inp_opt_metric=inp_opt_metric)
         else:
-            ptq_init_model(model, child_module, cali_data, opt_target=opt_target, opt_metric=opt_metric,
-                           batch_size=batch_size, asym=asym, act_quant=act_quant, 
-                           include_act_func=include_act_func)
+            ptq_init_model(model, child_module, cali_data,
+                           batch_size=batch_size, asym=asym, act_quant=act_quant,
+                           weight_opt_target=weight_opt_target, weight_opt_metric=weight_opt_metric,
+                           inp_opt_target=inp_opt_target, inp_opt_metric=inp_opt_metric)
     
     enable_quantization(model)
     if not act_quant:
