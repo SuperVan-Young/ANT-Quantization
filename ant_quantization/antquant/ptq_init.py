@@ -30,6 +30,10 @@ def register_act_func(module):
     Register succesive activation function to quantized layers. 
     """
     prev_quantmodule = None
+    def identity(x):
+        return x
+    #FIXME: use act function later
+
     for name, child_module in module.named_children():
         if isinstance(child_module, (
             Conv2dQuantizer,
@@ -37,14 +41,22 @@ def register_act_func(module):
             # MultiheadAttentionQuantizer,
         )):
             prev_quantmodule = child_module
-            prev_quantmodule.act_func = nn.Identity()
+            prev_quantmodule.act_func = identity
         elif isinstance(child_module, (
             nn.ReLU,
             nn.ReLU6,
             nn.GELU,
         )):
+            if isinstance(child_module, nn.ReLU):
+                act_func = F.relu
+            elif isinstance(child_module, nn.ReLU6):
+                act_func = F.relu6
+            elif isinstance(child_module, nn.GELU):
+                act_func = F.gelu
+            else:
+                raise NotImplementedError
             if prev_quantmodule is not None:
-                prev_quantmodule.act_func = child_module
+                prev_quantmodule.act_func = act_func
         else:
             register_act_func(child_module)
             
@@ -80,42 +92,51 @@ def ptq_init_model(model: nn.Module, module: nn.Module, cali_data: torch.Tensor,
         disable_input_quantization(model)
 
 
-def ptq_init_layer(model: nn.Module, layer: nn.Module, cali_data: torch.Tensor,
-                   opt_target: str ='tensor', opt_metric: str = 'mse', batch_size: int = 32, 
-                   asym: bool = False, act_quant: bool = False, include_act_func: bool = False):
+def ptq_init_layer(model: nn.Module, layer: nn.Module, cali_data: torch.Tensor, 
+                   batch_size: int = 32, asym: bool = False, act_quant: bool = False,
+                   weight_opt_target: str = 'tensor', weight_opt_metric: str = 'mse',
+                   inp_opt_target: str = 'tensor', inp_opt_metric: str = 'mse',
+                   ):
     """
     Initialize quantization parameters of the layer.
 
     :param model: quantized model, with all previous layers inited quant params
     :param layer: current layer to initailize PTQ params
     :param cali_data: calibration data from training set
+    :param batch_size: how much calibration data is fed at one time
+    :param asym: if set True, enable quantized model of previous layers to collect inp
+    :param act_quant: enable activation quantization for previous layers
     :param opt_target: minimize tensor error or output error
     :param opt_metric: how to determine the amount of quantization error
-    :param batch_size: how much calibration data is fed at one time
-    :param asym: if set True, use quantized input from previous layers
-    :param act_quant: use activation quantization or not
-    :param include_act_func: optimize the output after activation function
     """
     assert hasattr(layer, "act_func"), f" Layer {layer} doesn't register activation function"
 
-    set_quant_state_till_layer(model, layer, quant_weight=False, quant_input=False)
+    set_quant_state_till_layer(model, layer, weight_quant=False, act_quant=False)
 
     # store input and output activation
     cached_inps, cached_outs = save_inp_oup_data(model, layer, cali_data, 
                                                  asym=asym, act_quant=act_quant, batch_size=batch_size)
-    org_outs = cached_outs if opt_target == 'output' else None
+
+    # store gradient if necessary
+    if weight_opt_metric != 'fisher_diag' and inp_opt_metric != 'fisher_diag':
+        grad_out = save_grad_data(model, layer, cali_data, act_quant=act_quant, batch_size=batch_size)
+    else:
+        grad_out = None
 
     # init weight tensor quantizer
-    # For simplicity, input tensor quantizer is not initialized.
-    # With act_quant == True, his corresponds to Case 3 in QDrop if running reconstruction, which generally performs better.
+    # For simplicity, input tensor quantizer is not initialized when selecting weight's scaling factor.
+    # When running asymmetric reconstruction, this corresponds to Case 3 in QDrop.
     quant_weight = layer.quant_weight
-    quant_weight.init_quant_para(layer.weight, cached_inps, org_outs=cached_outs, 
-                                 opt_target=opt_target, opt_metric=opt_metric)
+    quant_weight.init_quant_para(layer.weight, data_b=cached_inps, org_outs=cached_outs, 
+                                 grad_data=None, grad_out=grad_out, act_func=layer.act_func,
+                                 opt_target=weight_opt_target, opt_metric=weight_opt_metric)
 
     # init input tensor quantizer
     # To align with BRECQ and original ANT, we still use MSE.
     quant_input = layer.quant_input
-    quant_input.init_quant_para(cached_inps, layer.weight, org_outs=None, opt_target='tensor', opt_metric='mse')
+    quant_input.init_quant_para(cached_inps, layer.weight, org_outs=cached_outs, 
+                                grad_data=None, grad_out=grad_out, act_func=layer.act_func,
+                                opt_target=inp_opt_target, opt_metric=inp_opt_metric)
 
 
 # Data collection util functions copied and modified from BRECQ/quant/data_utils.py

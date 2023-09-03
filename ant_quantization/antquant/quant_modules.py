@@ -322,8 +322,7 @@ class Quantizer(nn.Module):
 
 
     def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None, 
-                          grad_data: torch.Tensor = None, grad_out: torch.Tensor = None,
-                          act_func: Callable = None, use_act_func: bool = False,
+                          grad_data: torch.Tensor = None, grad_out: torch.Tensor = None, act_func: Callable = None, 
                           opt_target: str = 'tensor', opt_metric: str = 'mse'):
         tensor = data
 
@@ -361,14 +360,14 @@ class Quantizer(nn.Module):
                     score = self.pearson_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
                 else:
                     raise NotImplementedError
-            elif opt_target == 'output':
+            elif opt_target in ('output', 'activated_output'):
                 if self.is_input:
                     weight, inps = data_b, tensor
                 else:
                     weight, inps = tensor, data_b
                 quant_outs = self.operator(weight, inps)
 
-                if use_act_func:
+                if opt_target == 'activated_output':
                     assert opt_metric != 'fisher_diag'
                     assert act_func is not None
                     quant_outs = act_func(quant_outs)
@@ -539,8 +538,7 @@ class Quantizer(nn.Module):
 
 
     def init_quant_para(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
-                        grad_data: torch.Tensor = None, grad_out: torch.Tensor = None,
-                        act_func: Callable = None, use_act_func: bool = False,
+                        grad_data: torch.Tensor = None, grad_out: torch.Tensor = None, act_func: Callable = None, 
                         opt_target: str = 'tensor', opt_metric: str = 'mse'):
         with torch.no_grad():                    
             if self.has_inited_quant_para == 0:
@@ -560,8 +558,7 @@ class Quantizer(nn.Module):
                 else:
                     if "ant-" in self.mode:
                         self.search_adaptive_numeric_type(data=data, data_b=data_b, org_outs=org_outs,
-                                                          grad_data=grad_data, grad_out=grad_out,
-                                                          act_func=act_func, use_act_func=use_act_func,
+                                                          grad_data=grad_data, grad_out=grad_out, act_func=act_func, 
                                                           opt_target=opt_target, opt_metric=opt_metric)
 
                 alpha_ratio = 1.0
@@ -590,8 +587,7 @@ class Quantizer(nn.Module):
                     raise RuntimeError("Unsupported mode: " + self.mode)
                 
                 _, self.alpha.data, alpha_ratio = self.search_best_alpha(data=data, data_b=data_b, org_outs=org_outs,
-                                                          grad_data=grad_data, grad_out=grad_out,
-                                                          act_func=act_func, use_act_func=use_act_func,
+                                                          grad_data=grad_data, grad_out=grad_out, act_func=act_func, 
                                                           opt_target=opt_target, opt_metric=opt_metric)
 
 
