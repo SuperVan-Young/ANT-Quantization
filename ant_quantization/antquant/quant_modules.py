@@ -288,6 +288,31 @@ class Quantizer(nn.Module):
         else:
             return (quant_tensor-source_tensor).abs().pow(p).mean()
 
+    def cosine_loss(self, quant_tensor, source_tensor, is_perchannel = True):
+        # If this is weight tensor, we all assume channel-wise quantization
+        # If this is output tensor, we all assume the first dimension is batch
+        # In both cases we need to average on the first dimension
+        quant_tensor_view = quant_tensor.view(quant_tensor.shape[0], -1)
+        source_tensor_view = source_tensor.view(quant_tensor.shape[0], -1)
+        sim_tensor = F.cosine_similarity(quant_tensor_view, source_tensor_view, dim=-1)
+        if is_perchannel:
+            return sim_tensor.unsqueeze(1) * -1.0  # minimize loss
+        else:
+            return sim_tensor.mean() * -1.0
+        
+    def pearson_loss(self, quant_tensor, source_tensor, is_perchannel = True):
+        quant_tensor_view = quant_tensor.view(quant_tensor.shape[0], -1)
+        source_tensor_view = source_tensor.view(quant_tensor.shape[0], -1)
+        quant_tensor_mean = torch.mean(quant_tensor_view, dim=-1, keepdim=True)
+        source_tensor_mean = torch.mean(source_tensor_view, dim=-1, keepdim=True)
+        sim_tensor = F.cosine_similarity(quant_tensor_view-quant_tensor_mean, 
+                                         source_tensor_view-source_tensor_mean, dim=-1)
+        if is_perchannel:
+            return sim_tensor.unsqueeze(1) * -1.0  # minimize loss
+        else:
+            return sim_tensor.mean() * -1.0
+
+
     def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None,
                           opt_target: str = 'tensor', opt_metric: str = 'mse'):
         tensor = data
@@ -320,6 +345,10 @@ class Quantizer(nn.Module):
             if opt_target == 'tensor':
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_tensor, tensor, p=2.0, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'cosine':
+                    score = self.cosine_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'pearson':
+                    score = self.pearson_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
                 else:
                     raise NotImplementedError
             elif opt_target == 'output':
@@ -331,6 +360,10 @@ class Quantizer(nn.Module):
 
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'cosine':
+                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'pearson':
+                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
                 else:
                     raise NotImplementedError
             else:
