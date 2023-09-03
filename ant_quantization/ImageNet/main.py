@@ -71,6 +71,21 @@ parser.add_argument('--layer_8bit_n', '-n8', default='0', type=int,
                     help='number of 8-bit layers')
 parser.add_argument('--layer_8bit_l', '-l8', default=None, type=str, 
                     help='list of 8-bit layers')
+
+# PTQ arguments
+parser.add_argument('--calib_size', default=1024, type=int,
+                    help='calibration dataset size')
+parser.add_argument('--asym', default=True, action='store_true',
+                    help='asymmetric quantization')
+parser.add_argument('--w_opt_target', default='tensor', type=str,
+                    help='weight scaling factor optimization target')
+parser.add_argument('--w_opt_metric', default='mse', type=str,
+                    help='weight scaling factor optimization metric')
+parser.add_argument('--a_opt_target', default='tensor', type=str,
+                    help='activation scaling factor optimization target')
+parser.add_argument('--a_opt_metric', default='mse', type=str,
+                    help='activation scaling factor optimization metric')
+
 args = parser.parse_args()
 
 print(args)
@@ -162,8 +177,8 @@ if args.resume:
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
 
-
-model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+# debug: https://zhuanlan.zhihu.com/p/409117481
+model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True, broadcast_buffers=False)
 
 def reduce_ave_tensor(tensor):
     rt = tensor.clone()
@@ -238,11 +253,23 @@ def train(epoch):
 # Post-Training Quantization
 # Deprecated
 def ptq_init():
+    # we only run ptq experiments with 1 rank
     model.eval()
-    data = trainloader.next()
-    inputs = data[0]["data"]
-    ptq_init_model(model, model, inputs)
-    del(inputs)
+
+    calib_data = []
+    data_cnt = 0
+    for data in trainloader:
+        calib_data.append(data[0]['data'])
+        data_cnt += data[0]["data"].shape[0]
+        if data_cnt >= args.calib_size:
+            break
+    calib_data = torch.concat(calib_data, dim=0)
+
+    ptq_init_model(model, model, calib_data,
+                   asym=args.asym, act_quant=True,
+                   weight_opt_target=args.w_opt_target, weight_opt_metric=args.w_opt_metric,
+                   inp_opt_target=args.a_opt_target, inp_opt_metric=args.a_opt_metric)
+    del(calib_data)
 
 def test():
     model.eval()

@@ -313,12 +313,13 @@ class GetLayerGrad:
             try:
                 self.model.zero_grad()
                 inputs = model_input.to(self.device)
-                self.model.set_quant_state_till_layer(False,  False)
+                set_quant_state_till_layer(self.model, self.layer, False,  False)
                 out_fp = self.model(inputs)
                 set_quant_state_till_layer(self.model, self.layer, weight_quant=True, act_quant=self.act_quant)
                 out_q = self.model(inputs)
                 loss = F.kl_div(F.log_softmax(out_q, dim=1), F.softmax(out_fp, dim=1), reduction='batchmean')
-                loss.backward()
+                with torch.autograd.set_detect_anomaly(True):
+                    loss.backward()
             except StopForwardException:
                 pass
 
