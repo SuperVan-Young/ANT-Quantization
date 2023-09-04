@@ -282,43 +282,55 @@ class Quantizer(nn.Module):
 
         return self.convert_tensor(values)
 
-    def mse_loss(self, quant_tensor, source_tensor, p=2.0, is_perchannel = True):
+    def mse_loss(self, quant_tensor, source_tensor, p=2.0, is_perchannel = True, is_output = False):
         if is_perchannel:
-            mean_tensor =  (quant_tensor-source_tensor).abs().pow(p).view(quant_tensor.shape[0], -1).mean(-1).unsqueeze(1)
+            delta_tensor =  (quant_tensor-source_tensor).abs().pow(p)
+            if is_output:
+                mean_tensor = delta_tensor.view(quant_tensor.shape[0], quant_tensor.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
+            else:
+                mean_tensor = delta_tensor.view(quant_tensor.shape[0], -1).mean(-1).unsqueeze(1)
             return mean_tensor
         else:
             return (quant_tensor-source_tensor).abs().pow(p).mean()
 
-    def cosine_loss(self, quant_tensor, source_tensor, is_perchannel = True):
+    def cosine_loss(self, quant_tensor, source_tensor, is_perchannel = True, is_output = False):
         # If this is weight tensor, we all assume channel-wise quantization
         # If this is output tensor, we all assume the first dimension is batch
         # In both cases we need to average on the first dimension
-        quant_tensor_view = quant_tensor.view(quant_tensor.shape[0], -1)
-        source_tensor_view = source_tensor.view(quant_tensor.shape[0], -1)
-        sim_tensor = F.cosine_similarity(quant_tensor_view, source_tensor_view, dim=-1)
         if is_perchannel:
-            return sim_tensor.unsqueeze(1) * -1.0  # minimize loss
+            if is_output:
+                tensor_view = (quant_tensor.shape[0], quant_tensor.shape[1], -1)
+            else:
+                tensor_view = (quant_tensor.shape[0], -1)
+            quant_tensor_view = quant_tensor.view(*tensor_view)
+            source_tensor_view = source_tensor.view(*tensor_view)
+            sim_tensor = F.cosine_similarity(quant_tensor_view, source_tensor_view, dim=-1)
+            if is_output:
+                mean_tensor = sim_tensor.mean(0).unsqueeze(1)
+            else:
+                mean_tensor = sim_tensor.unsqueeze(1)
+            return mean_tensor * -1.0
         else:
-            return sim_tensor.mean() * -1.0
-        
-    def pearson_loss(self, quant_tensor, source_tensor, is_perchannel = True):
-        quant_tensor_view = quant_tensor.view(quant_tensor.shape[0], -1)
-        source_tensor_view = source_tensor.view(quant_tensor.shape[0], -1)
-        quant_tensor_mean = torch.mean(quant_tensor_view, dim=-1, keepdim=True)
-        source_tensor_mean = torch.mean(source_tensor_view, dim=-1, keepdim=True)
-        sim_tensor = F.cosine_similarity(quant_tensor_view-quant_tensor_mean, 
-                                         source_tensor_view-source_tensor_mean, dim=-1)
-        if is_perchannel:
-            return sim_tensor.unsqueeze(1) * -1.0  # minimize loss
-        else:
-            return sim_tensor.mean() * -1.0
+            if is_output:
+                tensor_view = (quant_tensor.shape[0], -1)
+            else:
+                tensor_view = (-1,)
+            quant_tensor_view = quant_tensor.view(*tensor_view)
+            source_tensor_view = source_tensor.view(*tensor_view)
+            sim_tensor = F.cosine_similarity(quant_tensor_view, source_tensor_view, dim=-1)
+            if is_output:
+                mean_tensor = sim_tensor.mean()
+            else:
+                mean_tensor = sim_tensor
+            return mean_tensor * -1.0
 
     def fisher_diag_loss(self, quant_output, source_output, grad, is_perchannel = True):
         if is_perchannel:
-            mean_tensor = ((quant_output - source_output) * grad).pow(2).view(quant_output.shape[0], -1).mean(-1).unsqueeze(1)
+            delta_tensor = ((quant_output - source_output) * grad).abs().pow(2)
+            mean_tensor = delta_tensor.view(quant_output.shape[0], quant_output.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
             return mean_tensor
         else:
-            return ((quant_output - source_output) * grad).pow(2).mean()
+            return ((quant_output - source_output) * grad).abs().pow(2).mean()
 
 
     def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None, 
@@ -356,8 +368,6 @@ class Quantizer(nn.Module):
                     score = self.mse_loss(quant_tensor, tensor, p=2.0, is_perchannel=self.is_perchannel)
                 elif opt_metric == 'cosine':
                     score = self.cosine_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
-                elif opt_metric == 'pearson':
-                    score = self.pearson_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
                 else:
                     raise NotImplementedError
             elif opt_target in ('output', 'activated_output'):
@@ -365,7 +375,7 @@ class Quantizer(nn.Module):
                     weight, inps = data_b, tensor
                 else:
                     weight, inps = tensor, data_b
-                quant_outs = self.operator(weight, inps)
+                quant_outs = self.operator(inps, weight)
 
                 if opt_target == 'activated_output':
                     assert opt_metric != 'fisher_diag'
@@ -373,12 +383,11 @@ class Quantizer(nn.Module):
                     quant_outs = act_func(quant_outs)
                     org_outs = act_func(org_outs)
 
+                # FIXME: output and weight have different output channel
                 if opt_metric == 'mse':
-                    score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel)
+                    score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
                 elif opt_metric == 'cosine':
-                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
-                elif opt_metric == 'pearson':
-                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel)
+                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel, is_output=True)
                 elif opt_metric == 'fisher_diag':
                     score = self.fisher_diag_loss(quant_outs, org_outs, grad_out, is_perchannel=self.is_perchannel)
                 else:

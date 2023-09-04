@@ -120,7 +120,7 @@ def ptq_init_layer(model: nn.Module, layer: nn.Module, cali_data: torch.Tensor,
                                                  asym=asym, act_quant=act_quant, batch_size=batch_size)
 
     # store gradient if necessary
-    if weight_opt_metric != 'fisher_diag' and inp_opt_metric != 'fisher_diag':
+    if weight_opt_metric == 'fisher_diag' or inp_opt_metric == 'fisher_diag':
         grad_out = save_grad_data(model, layer, cali_data, act_quant=act_quant, batch_size=batch_size)
     else:
         grad_out = None
@@ -308,7 +308,7 @@ class GetLayerGrad:
         """
         self.model.eval()
 
-        handle = self.layer.register_backward_hook(self.data_saver)
+        handle = self.layer.register_full_backward_hook(self.data_saver)
         with torch.enable_grad():
             try:
                 self.model.zero_grad()
