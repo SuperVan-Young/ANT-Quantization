@@ -383,7 +383,6 @@ class Quantizer(nn.Module):
                     quant_outs = act_func(quant_outs)
                     org_outs = act_func(org_outs)
 
-                # FIXME: output and weight have different output channel
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
                 elif opt_metric == 'cosine':
@@ -407,6 +406,9 @@ class Quantizer(nn.Module):
         return best_score.sum(), alpha, (alpha / x_max).mean().item()
 
     def search_adaptive_numeric_type(self, *args, **kwargs):
+        if dist.get_rank() == 0:
+            print(f"Searching adaptive numeric type for {self.name}...")
+
         modes = []
         mse_list = []
         mode = self.mode
@@ -416,8 +418,8 @@ class Quantizer(nn.Module):
             best_score_int, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('int')
             mse_list.append(best_score_int.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, INT   score: %f" %best_score_int)
+            if dist.get_rank() == 0:
+                print("ANT search, INT   score: %f" %best_score_int)
         
         if "-flint" in mode:
             self.mode = 'flint'
@@ -425,8 +427,8 @@ class Quantizer(nn.Module):
             best_score_flint, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('flint')
             mse_list.append(best_score_flint.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, Flint score: %f" %best_score_flint)
+            if dist.get_rank() == 0:
+                print("ANT search, Flint score: %f" %best_score_flint)
         
         if "-pot" in mode:
             self.mode = 'pot'
@@ -434,8 +436,8 @@ class Quantizer(nn.Module):
             best_score_pot, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('pot')
             mse_list.append(best_score_pot.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, POT   score: %f" %best_score_pot)
+            if dist.get_rank() == 0:
+                print("ANT search, POT   score: %f" %best_score_pot)
 
         if "-float" in mode:
             self.mode = 'float'
@@ -443,8 +445,8 @@ class Quantizer(nn.Module):
             best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float')
             mse_list.append(best_score_float.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, FLOAT score: %f" %best_score_float)
+            if dist.get_rank() == 0:
+                print("ANT search, FLOAT score: %f" %best_score_float)
 
         if "-float1" in mode:
             self.mode = 'float1'
@@ -452,8 +454,8 @@ class Quantizer(nn.Module):
             best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float1')
             mse_list.append(best_score_float.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, FLOAT 1 score: %f" %best_score_float)
+            if dist.get_rank() == 0:
+                print("ANT search, FLOAT 1 score: %f" %best_score_float)
 
         if "-float2" in mode:
             self.mode = 'float2'
@@ -461,8 +463,8 @@ class Quantizer(nn.Module):
             best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float2')
             mse_list.append(best_score_float.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, FLOAT 2 score: %f" %best_score_float)
+            if dist.get_rank() == 0:
+                print("ANT search, FLOAT 2 score: %f" %best_score_float)
 
         if "-float3" in mode:
             self.mode = 'float3'
@@ -470,8 +472,8 @@ class Quantizer(nn.Module):
             best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float3')
             mse_list.append(best_score_float.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, FLOAT 3 score: %f" %best_score_float)
+            if dist.get_rank() == 0:
+                print("ANT search, FLOAT 3 score: %f" %best_score_float)
 
         if "-float4" in mode:
             self.mode = 'float4'
@@ -479,8 +481,8 @@ class Quantizer(nn.Module):
             best_score_float, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('float4')
             mse_list.append(best_score_float.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, FLOAT 4 score: %f" %best_score_float)
+            if dist.get_rank() == 0:
+                print("ANT search, FLOAT 4 score: %f" %best_score_float)
 
         if "-apot" in mode:
             self.mode = 'apot'
@@ -488,8 +490,8 @@ class Quantizer(nn.Module):
             best_score_apot, _, _ = self.search_best_alpha(*args, **kwargs)
             modes.append('apot')
             mse_list.append(best_score_apot.item())
-            # if dist.get_rank() == 0:
-            #     print("ANT search, APOT score: %f" %best_score_apot)
+            if dist.get_rank() == 0:
+                print("ANT search, APOT score: %f" %best_score_apot)
 
         mse_list = np.array(mse_list)
         mse_idx = np.argsort(mse_list)
@@ -595,7 +597,7 @@ class Quantizer(nn.Module):
                 else:
                     raise RuntimeError("Unsupported mode: " + self.mode)
                 
-                _, self.alpha.data, alpha_ratio = self.search_best_alpha(data=data, data_b=data_b, org_outs=org_outs,
+                best_score, self.alpha.data, alpha_ratio = self.search_best_alpha(data=data, data_b=data_b, org_outs=org_outs,
                                                           grad_data=grad_data, grad_out=grad_out, act_func=act_func, 
                                                           opt_target=opt_target, opt_metric=opt_metric)
 
@@ -611,7 +613,7 @@ class Quantizer(nn.Module):
                 dist.broadcast(self.mse, 0)
                 if dist.get_rank() == 0:
                     print(self.mode, end="\t")
-                    print("%d-bit \t %s," %(self.bit.item(), self.name))
+                    print("%d-bit  best-score=%f  alpha-ratio=%.2f \t %s," %(self.bit.item(), best_score, alpha_ratio, self.name))
                 
                 self.alpha.data = reduce_ave_tensor(self.alpha.data)
                 dist.broadcast(self.quant_grid, 0)
