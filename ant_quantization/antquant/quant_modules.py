@@ -83,7 +83,8 @@ class Quantizer(nn.Module):
         assert(2 ** self.bit.item() == len(values))
         values = torch.tensor(values, device=self.quant_grid.device)
         values, _ = torch.sort(values)
-        values = values.mul(10.0 / torch.max(values))
+        # values = values.mul(1.0 / torch.max(torch.abs(values)))  
+        values = values.mul(10.0 / torch.max(values)) # seems like a bug
         # print(values.shape, values.data, end="--")
         return values
 
@@ -372,9 +373,11 @@ class Quantizer(nn.Module):
                     raise NotImplementedError
             elif opt_target in ('output', 'activated_output'):
                 if self.is_input:
-                    weight, inps = data_b, tensor
+                    # weight should have been quanted for input
+                    weight, inps = data_b, quant_tensor
                 else:
-                    weight, inps = tensor, data_b
+                    # input should not be quanted in QDrop Case 3
+                    weight, inps = quant_tensor, data_b
                 quant_outs = self.operator(inps, weight)
 
                 if opt_target == 'activated_output':
@@ -676,6 +679,7 @@ class Conv2dQuantizer(nn.Module):
     def __init__(self, mode=None, wbit=None, abit=None, args=None):
         super(Conv2dQuantizer, self).__init__()
         assert mode is not None,'Quantizer is not initilized!'
+        # FIXME: input use unsigned for relu activation by default, which is not proper for ViT and BERT
         self.quant_weight = TensorQuantizer(mode=mode, bit=wbit, is_signed=True, is_enable=True, args=args, operator=self._conv_forward)
         self.quant_input  = TensorQuantizer(mode=mode, bit=abit, is_signed=False, is_enable=True, args=args, operator=self._conv_forward, is_input=True)
 
@@ -714,6 +718,7 @@ class LinearQuantizer(nn.Module):
     def __init__(self, mode=None, wbit=None, abit=None, args=None):
         super(LinearQuantizer, self).__init__()
         assert mode is not None,'Quantizer is not initilized!'
+        # FIXME: input use unsigned for relu activation by default, which is not proper for ViT and BERT
         self.quant_weight = TensorQuantizer(mode=mode, bit=wbit, is_signed=True, is_enable=True, args=args, operator=F.linear)
         self.quant_input  = TensorQuantizer(mode=mode, bit=abit, is_signed=False, is_enable=True, args=args, operator=F.linear, is_input=True)
 

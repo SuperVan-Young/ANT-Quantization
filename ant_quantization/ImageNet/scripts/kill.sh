@@ -1,0 +1,1 @@
+ps aux | grep "/home/xuechenhao/anaconda3/envs/ant_quant/bin/python -u main.py" | grep -v grep | awk '{print $2}' | xargs kill -9
