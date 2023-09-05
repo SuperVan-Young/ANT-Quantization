@@ -353,24 +353,31 @@ class Quantizer(nn.Module):
                     raise NotImplementedError
                 total_score = total_score + score
             total_score = total_score / num_batch
+        torch.cuda.empty_cache()
         return total_score
     
     def _get_output_quant_score(self, weight, input, org_outs, opt_target, opt_metric, grad=None, act_func=None, batch_size=32):
         total_score = 0
         num_batch = int(input.shape[0]/batch_size)
         device = torch.device('cuda')
+        torch.cuda.empty_cache()
 
         with torch.no_grad():
             for i in range(num_batch):
+                quant_weight = weight
                 input_tile = input[i*batch_size:(i+1)*batch_size].to(device)
-                quant_outs_tile = self.operator(input_tile, weight)
+                if self.is_input:
+                    input_tile = self._forward(input_tile)
+                else:
+                    quant_weight = self._forward(quant_weight)
+                quant_outs_tile = self.operator(input_tile, quant_weight)
                 org_outs_tile = org_outs[i*batch_size:(i+1)*batch_size].to(device)
 
                 if opt_target == 'activated_output':
                     assert opt_metric != 'fisher_diag'
-                    assert act_func is not None
-                    quant_outs_tile = act_func(quant_outs_tile)
-                    org_outs_tile = act_func(org_outs_tile)
+                    if act_func != None:
+                        quant_outs_tile = act_func(quant_outs_tile)
+                        org_outs_tile = act_func(org_outs_tile)
 
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_outs_tile, org_outs_tile, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
@@ -384,11 +391,12 @@ class Quantizer(nn.Module):
                 
                 total_score = total_score + score
             total_score = total_score / num_batch
+        torch.cuda.empty_cache()
         return total_score
 
     def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None, 
                           grad_data: torch.Tensor = None, grad_out: torch.Tensor = None, act_func: Callable = None, 
-                          opt_target: str = 'tensor', opt_metric: str = 'mse', batch_size=256):
+                          opt_target: str = 'tensor', opt_metric: str = 'mse', batch_size=32):
         tensor = data
         gpu_device = torch.device('cuda')
 
@@ -602,13 +610,15 @@ class Quantizer(nn.Module):
                     if t is not None:
                         total_calib_data_size += t.element_size() * t.numel()
                 available_gpu_memory = torch.cuda.get_device_properties(gpu_device.index).total_memory - torch.cuda.memory_allocated()
-                print(f"total calib data size: {total_calib_data_size / 1e9} GB")
-                print(f"available GPU memory: {available_gpu_memory / 1e9} GB")
-                if total_calib_data_size < available_gpu_memory:
+                # print(f"total calib data size: {total_calib_data_size / 1e9} GB")
+                # print(f"available GPU memory: {available_gpu_memory / 1e9} GB")
+                if total_calib_data_size + 4e9 < available_gpu_memory:
                     for t in (data_b, org_outs, grad_out):
                         if t is not None:
                             t = t.to(gpu_device)
-                            print(t.device)
+                            # print(t.device)
+                else:
+                    print(f"Failed to cache all activation: {total_calib_data_size / 1e9} > {available_gpu_memory / 1e9}")
 
                 if self.bit > 6:
                     self.mode = 'int'
