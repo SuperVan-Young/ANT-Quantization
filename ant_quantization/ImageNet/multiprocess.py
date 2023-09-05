@@ -17,13 +17,13 @@ def run_experiment(args):
     # configure command line
     cmd = f"python -u -m torch.distributed.launch --nproc_per_node=1 --master_port {os.environ['pytorch_dist_master_port']} main.py"
     for arg_name, arg_val in args.items():
-        cmd += f" --{arg_name} {arg_val}" if arg_val else f" --{arg_name}"
+        cmd += f" --{arg_name}={arg_val}" if arg_val else f" --{arg_name}"
     print(f"Running command: {cmd}")
 
     # configure log file
     def get_log_filename(args):
-        arch = args['arch']
-        datatype = args['datatype']
+        model = args['model']
+        mode = args['mode']
 
         w_opt_target = args['w_opt_target']
         a_opt_target = args['a_opt_target']
@@ -32,7 +32,7 @@ def run_experiment(args):
         
         opt =  f"W-{w_opt_target}-{w_opt_metric}-A-{a_opt_target}-{a_opt_metric}"
 
-        log_filename = f"M-{arch}-D-{datatype}-{opt}.log"
+        log_filename = f"M-{model}-D-{mode}-{opt}.log"
 
         return log_filename
 
@@ -62,7 +62,7 @@ def run_all_experiments(args_list):
         pid = os.getpid()  # workers are spawned with consecutive pids
         gpu_id = pid % NUM_GPUS
         os.environ['CUDA_VISIBLE_DEVICES'] = f"{gpu_id}"
-        os.environ['pytorch_dist_master_port'] = 46666 + gpu_id
+        os.environ['pytorch_dist_master_port'] = f"{46666 + gpu_id}"
 
     with Pool(processes=NUM_GPUS, initializer=pool_initializer) as pool:
         pool.map(run_experiment, args_list)
@@ -71,13 +71,18 @@ def run_all_experiments(args_list):
 
 def create_args_list():
     arch_list = [
+        'resnet18',
+        'resnet50',
+        'vgg16',
+        'inception_v3',
+        # 'vit_b_16',
     ]
     datatype_list = [
         'int',
-        'ant-int-pot',
-        'ant-int-pot-float',
-        'ant-int-pot-flint',
-        'ant-int-pot-float-flint',
+        # 'ant-int-pot',
+        # 'ant-int-pot-float',
+        # 'ant-int-pot-flint',
+        # 'ant-int-pot-float-flint',
     ]
     opts = {
         ('tensor', 'mse', 'tensor', 'mse'),
@@ -89,20 +94,21 @@ def create_args_list():
     default_args = {
         'ptq': None,
         'dataset': 'imagenet',
-        'w_bit': 4,
-        'a_bit': 4,
+        'calib_size': 1024,
+        'wbit': 4,
+        'abit': 4,
         'w_low': 1,
         'a_low': 1,
-        'w_high': 105,
-        'a_high': 105,
+        'w_up': 105,
+        'a_up': 105,
     }
 
     args_list = []
 
-    for arch, datatype, opt in product(arch_list, datatype_list, opts):
+    for model, mode, opt in product(arch_list, datatype_list, opts):
         args = {
-            'arch': arch,
-            'datatype': datatype,
+            'model': model,
+            'mode': mode,
             'w_opt_target': opt[0],
             'w_opt_metric': opt[1],
             'a_opt_target': opt[2],

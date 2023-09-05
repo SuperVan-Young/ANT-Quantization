@@ -376,8 +376,12 @@ class Quantizer(nn.Module):
                 if opt_target == 'activated_output':
                     assert opt_metric != 'fisher_diag'
                     if act_func != None:
+                        # print(f"Layer {self.name} use activation function {act_func}")
                         quant_outs_tile = act_func(quant_outs_tile)
                         org_outs_tile = act_func(org_outs_tile)
+                    else:
+                        # print(f"Layer {self.name} doesn't have activation function")
+                        pass
 
                 if opt_metric == 'mse':
                     score = self.mse_loss(quant_outs_tile, org_outs_tile, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
@@ -425,10 +429,16 @@ class Quantizer(nn.Module):
             self.alpha.data = new_alpha
             
             if opt_target == 'tensor':
-                batch_size = tensor.shape[0] if not self.is_input else batch_size
+                if not self.is_input:
+                    batch_size = tensor.shape[0]
+                else:
+                    if data.device.type == 'cuda':
+                        batch_size = tensor.shape[0] 
                 score = self._get_tensor_quant_score(tensor, opt_metric, batch_size=batch_size)
             elif opt_target in ('output', 'activated_output'):
                 weight, input = (data, data_b) if not self.is_input else (data_b, data)
+                if input.device.type == 'cuda':
+                    batch_size = input.shape[0]
                 score = self._get_output_quant_score(weight, input, org_outs, opt_target, opt_metric, grad=grad_out, batch_size=batch_size)
             else:
                 raise NotImplementedError
@@ -613,10 +623,9 @@ class Quantizer(nn.Module):
                 # print(f"total calib data size: {total_calib_data_size / 1e9} GB")
                 # print(f"available GPU memory: {available_gpu_memory / 1e9} GB")
                 if total_calib_data_size + 4e9 < available_gpu_memory:
-                    for t in (data_b, org_outs, grad_out):
-                        if t is not None:
-                            t = t.to(gpu_device)
-                            # print(t.device)
+                    data_b = data_b.to(gpu_device) if data_b is not None else None
+                    org_outs = org_outs.to(gpu_device) if org_outs is not None else None
+                    grad_out = org_outs.to(gpu_device) if grad_out is not None else None
                 else:
                     print(f"Failed to cache all activation: {total_calib_data_size / 1e9} > {available_gpu_memory / 1e9}")
 
