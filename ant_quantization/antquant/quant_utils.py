@@ -83,4 +83,9 @@ def get_model(args):
     if args.model == "inception_v3":
         return models.inception_v3(aux_logits=False,pretrained=True)
     else:
-        return models.__dict__[args.model](pretrained=True)
+        model = models.__dict__[args.model](pretrained=True)
+        if args.model == 'vgg16':
+            model: torch.nn.Module
+            for name, module in model.named_modules():
+                module.inplace = False
+        return model

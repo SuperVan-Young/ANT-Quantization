@@ -117,11 +117,11 @@ def ptq_init_layer(model: nn.Module, layer: nn.Module, cali_data: torch.Tensor,
 
     # store input and output activation
     cached_inps, cached_outs = save_inp_oup_data(model, layer, cali_data, 
-                                                 asym=asym, act_quant=act_quant, batch_size=batch_size)
+                                                 asym=asym, act_quant=act_quant, batch_size=batch_size, keep_gpu=False)
 
     # store gradient if necessary
     if weight_opt_metric == 'fisher_diag' or inp_opt_metric == 'fisher_diag':
-        grad_out = save_grad_data(model, layer, cali_data, act_quant=act_quant, batch_size=batch_size)
+        grad_out = save_grad_data(model, layer, cali_data, act_quant=act_quant, batch_size=batch_size, keep_gpu=False)
     else:
         grad_out = None
 

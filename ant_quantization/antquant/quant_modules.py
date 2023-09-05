@@ -332,24 +332,77 @@ class Quantizer(nn.Module):
             return mean_tensor
         else:
             return ((quant_output - source_output) * grad).abs().pow(2).mean()
+        
+    def _get_tensor_quant_score(self, tensor, opt_metric, batch_size=32):
+        """
+        Calculate score between original tensor and quanted tensor on given device.
+        """
+        total_score = 0
+        num_batch = int(tensor.shape[0]/batch_size)
+        device = torch.device('cuda')
 
+        with torch.no_grad():
+            for i in range(0, num_batch):
+                tensor_tile = tensor[i*batch_size:(i+1)*batch_size].to(device)
+                quant_tensor_tile = self._forward(tensor_tile)
+                if opt_metric == 'mse':
+                    score = self.mse_loss(quant_tensor_tile, tensor_tile, p=2.0, is_perchannel=self.is_perchannel)
+                elif opt_metric == 'cosine':
+                    score = self.cosine_loss(quant_tensor_tile, tensor_tile, is_perchannel=self.is_perchannel)
+                else:
+                    raise NotImplementedError
+                total_score = total_score + score
+            total_score = total_score / num_batch
+        return total_score
+    
+    def _get_output_quant_score(self, weight, input, org_outs, opt_target, opt_metric, grad=None, act_func=None, batch_size=32):
+        total_score = 0
+        num_batch = int(input.shape[0]/batch_size)
+        device = torch.device('cuda')
+
+        with torch.no_grad():
+            for i in range(num_batch):
+                input_tile = input[i*batch_size:(i+1)*batch_size].to(device)
+                quant_outs_tile = self.operator(input_tile, weight)
+                org_outs_tile = org_outs[i*batch_size:(i+1)*batch_size].to(device)
+
+                if opt_target == 'activated_output':
+                    assert opt_metric != 'fisher_diag'
+                    assert act_func is not None
+                    quant_outs_tile = act_func(quant_outs_tile)
+                    org_outs_tile = act_func(org_outs_tile)
+
+                if opt_metric == 'mse':
+                    score = self.mse_loss(quant_outs_tile, org_outs_tile, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
+                elif opt_metric == 'cosine':
+                    score = self.cosine_loss(quant_outs_tile, org_outs_tile, is_perchannel=self.is_perchannel, is_output=True)
+                elif opt_metric == 'fisher_diag':
+                    grad_tile = grad[i*batch_size:(i+1)*batch_size].to(device)
+                    score = self.fisher_diag_loss(quant_outs_tile, org_outs_tile, grad_tile, is_perchannel=self.is_perchannel)
+                else:
+                    raise NotImplementedError
+                
+                total_score = total_score + score
+            total_score = total_score / num_batch
+        return total_score
 
     def search_best_alpha(self, data: torch.Tensor, data_b: torch.Tensor = None, org_outs: torch.Tensor = None, 
                           grad_data: torch.Tensor = None, grad_out: torch.Tensor = None, act_func: Callable = None, 
-                          opt_target: str = 'tensor', opt_metric: str = 'mse'):
+                          opt_target: str = 'tensor', opt_metric: str = 'mse', batch_size=256):
         tensor = data
+        gpu_device = torch.device('cuda')
 
         if self.is_perchannel:
             x_max, _ = tensor.view(tensor.shape[0], -1).abs().max(1)
-            x_max = x_max.unsqueeze(1)            
+            x_max = x_max.unsqueeze(1)
             best_score = torch.ones_like(x_max) * 1e10
-            alpha = x_max.clone()
-            base_alpha = x_max.clone()
+            alpha = x_max.clone().to(gpu_device)
+            base_alpha = x_max.clone().to(gpu_device)
         else:
             x_max = tensor.abs().max()
             best_score = 1e10
-            alpha = x_max.clone()
-            base_alpha = alpha.clone()
+            alpha = x_max.clone().to(gpu_device)
+            base_alpha = alpha.clone().to(gpu_device)
 
         if opt_metric == 'max':
             assert opt_target != 'output', "Min-Max metric can only target tensor reconstruction."
@@ -362,38 +415,13 @@ class Quantizer(nn.Module):
         for i in range(lb, ub):
             new_alpha = base_alpha * (i * 0.01)
             self.alpha.data = new_alpha
-            quant_tensor = self._forward(tensor)
-
+            
             if opt_target == 'tensor':
-                if opt_metric == 'mse':
-                    score = self.mse_loss(quant_tensor, tensor, p=2.0, is_perchannel=self.is_perchannel)
-                elif opt_metric == 'cosine':
-                    score = self.cosine_loss(quant_tensor, tensor, is_perchannel=self.is_perchannel)
-                else:
-                    raise NotImplementedError
+                batch_size = tensor.shape[0] if not self.is_input else batch_size
+                score = self._get_tensor_quant_score(tensor, opt_metric, batch_size=batch_size)
             elif opt_target in ('output', 'activated_output'):
-                if self.is_input:
-                    # weight should have been quanted for input
-                    weight, inps = data_b, quant_tensor
-                else:
-                    # input should not be quanted in QDrop Case 3
-                    weight, inps = quant_tensor, data_b
-                quant_outs = self.operator(inps, weight)
-
-                if opt_target == 'activated_output':
-                    assert opt_metric != 'fisher_diag'
-                    assert act_func is not None
-                    quant_outs = act_func(quant_outs)
-                    org_outs = act_func(org_outs)
-
-                if opt_metric == 'mse':
-                    score = self.mse_loss(quant_outs, org_outs, p=2.0, is_perchannel=self.is_perchannel, is_output=True)
-                elif opt_metric == 'cosine':
-                    score = self.cosine_loss(quant_outs, org_outs, is_perchannel=self.is_perchannel, is_output=True)
-                elif opt_metric == 'fisher_diag':
-                    score = self.fisher_diag_loss(quant_outs, org_outs, grad_out, is_perchannel=self.is_perchannel)
-                else:
-                    raise NotImplementedError
+                weight, input = (data, data_b) if not self.is_input else (data_b, data)
+                score = self._get_output_quant_score(weight, input, org_outs, opt_target, opt_metric, grad=grad_out, batch_size=batch_size)
             else:
                 raise NotImplementedError
 
@@ -567,6 +595,21 @@ class Quantizer(nn.Module):
                 if self.mode == 'outlier':
                     return self.outlier_set(data)
 
+                # transfer activation to GPU if possible
+                gpu_device = torch.device('cuda')
+                total_calib_data_size = 0
+                for t in (data_b, org_outs, grad_out):
+                    if t is not None:
+                        total_calib_data_size += t.element_size() * t.numel()
+                available_gpu_memory = torch.cuda.get_device_properties(gpu_device.index).total_memory - torch.cuda.memory_allocated()
+                print(f"total calib data size: {total_calib_data_size / 1e9} GB")
+                print(f"available GPU memory: {available_gpu_memory / 1e9} GB")
+                if total_calib_data_size < available_gpu_memory:
+                    for t in (data_b, org_outs, grad_out):
+                        if t is not None:
+                            t = t.to(gpu_device)
+                            print(t.device)
+
                 if self.bit > 6:
                     self.mode = 'int'
                 else:
@@ -611,12 +654,12 @@ class Quantizer(nn.Module):
                     rt /= dist.get_world_size()
                     return rt
 
-                quant_data = self._forward(data)
-                self.mse = self.mse_loss(quant_data, data, 2, is_perchannel=self.is_perchannel).mean()
-                dist.broadcast(self.mse, 0)
+                # quant_data = self._forward(data)
+                # self.mse = self.mse_loss(quant_data, data, 2, is_perchannel=self.is_perchannel).mean()
+                # dist.broadcast(self.mse, 0)
                 if dist.get_rank() == 0:
-                    print(self.mode, end="\t")
-                    print("%d-bit  best-score=%f  alpha-ratio=%.2f \t %s," %(self.bit.item(), best_score, alpha_ratio, self.name))
+                    print(f"mode={self.mode}", end="\t")
+                    print("bit=%d  best-score=%f  alpha-ratio=%.2f \t %s," %(self.bit.item(), best_score, alpha_ratio, self.name))
                 
                 self.alpha.data = reduce_ave_tensor(self.alpha.data)
                 dist.broadcast(self.quant_grid, 0)
