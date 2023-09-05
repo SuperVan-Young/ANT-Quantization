@@ -285,11 +285,10 @@ class Quantizer(nn.Module):
 
     def mse_loss(self, quant_tensor, source_tensor, p=2.0, is_perchannel = True, is_output = False):
         if is_perchannel:
-            delta_tensor =  (quant_tensor-source_tensor).abs().pow(p)
             if is_output:
-                mean_tensor = delta_tensor.view(quant_tensor.shape[0], quant_tensor.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
+                mean_tensor = (quant_tensor-source_tensor).abs().pow(p).view(quant_tensor.shape[0], quant_tensor.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
             else:
-                mean_tensor = delta_tensor.view(quant_tensor.shape[0], -1).mean(-1).unsqueeze(1)
+                mean_tensor = (quant_tensor-source_tensor).abs().pow(p).view(quant_tensor.shape[0], -1).mean(-1).unsqueeze(1)
             return mean_tensor
         else:
             return (quant_tensor-source_tensor).abs().pow(p).mean()
@@ -327,8 +326,7 @@ class Quantizer(nn.Module):
 
     def fisher_diag_loss(self, quant_output, source_output, grad, is_perchannel = True):
         if is_perchannel:
-            delta_tensor = ((quant_output - source_output) * grad).abs().pow(2)
-            mean_tensor = delta_tensor.view(quant_output.shape[0], quant_output.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
+            mean_tensor = ((quant_output - source_output) * grad).abs().pow(2).view(quant_output.shape[0], quant_output.shape[1], -1).mean(-1).mean(0).unsqueeze(1)
             return mean_tensor
         else:
             return ((quant_output - source_output) * grad).abs().pow(2).mean()
