@@ -13,7 +13,7 @@ import bitfusion.src.benchmarks.bitfusion_bench as bit
 import bitfusion.src.benchmarks.olaccel_bench as ola
 import bitfusion.src.benchmarks.ant_weight_bench as ant_weight
 import bitfusion.src.benchmarks.biscaled_bench as biscaled
-import bitfusion.src.benchmarks.oltron_bench_bench as oltron
+import bitfusion.src.benchmarks.oltron_bench as oltron
 
 import os
 

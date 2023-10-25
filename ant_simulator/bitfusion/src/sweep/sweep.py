@@ -109,6 +109,8 @@ class SimulatorSweep(object):
                                                     nn = benchmarks.get_bench_nn_ola(b, batch_size)
                                                 elif bench_type == 'bis':
                                                     nn = benchmarks.get_bench_nn_bis(b, batch_size)
+                                                elif bench_type == 'oltron':
+                                                    nn = benchmarks.get_bench_nn_oltron(b, batch_size)
 
                                                 if len(results) == 0:
                                                     self.logger.info('Simulating Benchmark: {}'.format(b))
