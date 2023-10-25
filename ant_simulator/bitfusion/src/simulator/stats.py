@@ -79,7 +79,7 @@ class Stats(object):
 
         return dyn_energy
 
-    def get_energy_breakdown(self, energy_cost, dram_cost=6e-3):
+    def get_energy_breakdown(self, energy_cost, dram_cost=6e-3, act_cost_alpha = 1):
         dram_leak_energy = 484.615 / 500
         dram_cost_read = 0.644304 / 1024
         dram_cost_write = 0.784104 / 1024
@@ -91,8 +91,8 @@ class Stats(object):
         sram_energy = self.reads['wgt'] * energy_cost.wbuf_read_energy
         sram_energy += self.writes['wgt'] * energy_cost.wbuf_write_energy
 
-        sram_energy += self.reads['act'] * energy_cost.ibuf_read_energy
-        sram_energy += self.writes['act'] * energy_cost.ibuf_write_energy
+        sram_energy += self.reads['act'] * energy_cost.ibuf_read_energy * act_cost_alpha
+        sram_energy += self.writes['act'] * energy_cost.ibuf_write_energy * act_cost_alpha
 
         sram_energy += self.reads['out'] * energy_cost.obuf_read_energy
         sram_energy += self.writes['out'] * energy_cost.obuf_write_energy
