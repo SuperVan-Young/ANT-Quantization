@@ -173,21 +173,21 @@ def get_bench_nn_ant(bench_name, batch_size):
     elif bench_name == 'mnli':
         return create_net(bench_name, ant.mnli, batch_size)
     elif bench_name == 'llama7b':
-        return create_net(bench_name, oltron.llama7b, batch_size)
+        return create_net(bench_name, ant.llama7b, batch_size)
     elif bench_name == 'llama13b':
-        return create_net(bench_name, oltron.llama13b, batch_size)
+        return create_net(bench_name, ant.llama13b, batch_size)
     elif bench_name == 'llama30b':
-        return create_net(bench_name, oltron.llama30b, batch_size)
+        return create_net(bench_name, ant.llama30b, batch_size)
     elif bench_name == 'llama65b':
-        return create_net(bench_name, oltron.llama65b, batch_size)
+        return create_net(bench_name, ant.llama65b, batch_size)
     elif bench_name == 'opt6b':
-        return create_net(bench_name, oltron.opt6b, batch_size)
+        return create_net(bench_name, ant.opt6b, batch_size)
     elif bench_name == 'opt13b':
-        return create_net(bench_name, oltron.opt13b, batch_size)
+        return create_net(bench_name, ant.opt13b, batch_size)
     elif bench_name == 'opt30b':
-        return create_net(bench_name, oltron.opt30b, batch_size)
+        return create_net(bench_name, ant.opt30b, batch_size)
     elif bench_name == 'opt66b':
-        return create_net(bench_name, oltron.opt66b, batch_size)
+        return create_net(bench_name, ant.opt66b, batch_size)
 
 def get_bench_nn_ant_weight(bench_name, batch_size):
     if bench_name == 'vgg16':
@@ -303,21 +303,21 @@ def get_bench_nn_ola(bench_name, batch_size):
     elif bench_name == 'mnli':
         return create_net(bench_name, ola.mnli, batch_size)
     elif bench_name == 'llama7b':
-        return create_net(bench_name, oltron.llama7b, batch_size)
+        return create_net(bench_name, ola.llama7b, batch_size)
     elif bench_name == 'llama13b':
-        return create_net(bench_name, oltron.llama13b, batch_size)
+        return create_net(bench_name, ola.llama13b, batch_size)
     elif bench_name == 'llama30b':
-        return create_net(bench_name, oltron.llama30b, batch_size)
+        return create_net(bench_name, ola.llama30b, batch_size)
     elif bench_name == 'llama65b':
-        return create_net(bench_name, oltron.llama65b, batch_size)
+        return create_net(bench_name, ola.llama65b, batch_size)
     elif bench_name == 'opt6b':
-        return create_net(bench_name, oltron.opt6b, batch_size)
+        return create_net(bench_name, ola.opt6b, batch_size)
     elif bench_name == 'opt13b':
-        return create_net(bench_name, oltron.opt13b, batch_size)
+        return create_net(bench_name, ola.opt13b, batch_size)
     elif bench_name == 'opt30b':
-        return create_net(bench_name, oltron.opt30b, batch_size)
+        return create_net(bench_name, ola.opt30b, batch_size)
     elif bench_name == 'opt66b':
-        return create_net(bench_name, oltron.opt66b, batch_size)
+        return create_net(bench_name, ola.opt66b, batch_size)
 
 def get_bench_nn_bis(bench_name, batch_size):
     if bench_name == 'vgg16':
@@ -347,7 +347,7 @@ def get_bench_nn_bis(bench_name, batch_size):
     elif bench_name == 'mnli':
         return create_net(bench_name, biscaled.mnli, batch_size)
     
-def get_ben_nn_oltron(bench_name, batch_size):
+def get_bench_nn_oltron(bench_name, batch_size):
     if bench_name == 'llama7b':
         return create_net(bench_name, oltron.llama7b, batch_size)
     elif bench_name == 'llama13b':
