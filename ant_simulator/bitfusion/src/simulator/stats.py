@@ -99,8 +99,8 @@ class Stats(object):
 
         # sram_energy += self.total_cycles * energy_cost.sram_leak_energy
 
-        dram_energy = self.reads['dram'] * dram_cost_read
-        dram_energy += self.writes['dram'] * dram_cost_write
+        dram_energy = self.reads['dram'] * dram_cost_read * (1 + act_cost_alpha) / 2
+        dram_energy += self.writes['dram'] * dram_cost_write * (1 + act_cost_alpha) / 2
 
         static_energy = self.total_cycles * dram_leak_energy
 
